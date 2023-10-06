@@ -1,28 +1,229 @@
 ---
-title: ""
-author: ""
+title: "Lab6"
+author: "Katrina Ninh"
 format:
   html:
     embed-resources: true
 ---
 
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
 
 ```{r}
-1 + 1
+
+
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(data.table)
+library(ggplot2)
+library(tidytext)
+library(lubridate)
+library(leaflet)
+library(dtplyr)
+library(readr)
+
+## Load data
+if (!file.exists("mtsamples.csv"))
+  download.file(
+    url = "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/00_mtsamples/mtsamples.csv",
+    destfile = "mtsamples.csv",
+    method   = "libcurl",
+    timeout  = 60
+    )
+
+##dat <- read.csv("mtsamples.csv")  ## Note: read.csv does not work for filter() - cannot be used to do Q7
+
+dat <- readr::read_csv("mtsamples.csv")
+
+dat <- dat %>%
+  select(description, medical_specialty, sample_name, transcription, keywords)
+
+head(dat)
+
+##Columns Names: description, medical_specialty, sample_name, transcription, keywords
+
 ```
 
-You can add options to executable code like this
+### Question 1. **What specialties do we have?**
 
 ```{r}
-#| echo: false
-2 * 2
+
+categoryCounts <- dat %>% 
+  count(medical_specialty, sort = TRUE)
+
+print(categoryCounts, n=45)
+
+
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+
+Answer 1: There are 40 specialties listed but some of them probably are paperwork related, for example:
+
+9   SOAP / Chart / Progress Notes  166
+12              Discharge Summary  108
+18         Emergency Room Reports   75
+22                   Office Notes   51
+27                        Letters   23
+36              Speech - Language    9
+
+### Question 2.
+
+```{r}
+
+dat %>%
+  unnest_tokens(token, transcription) %>%
+  count(token, sort = TRUE) %>%
+  top_n(20, n) %>%
+  ggplot(aes(n, token)) + 
+  geom_col()
+
+
+```
+
+
+Answer 2: The top 20 words are not very insightful.  They are mostly stop words such articles, conjunction, pronouns, or helping verbs - which makes sense because these words help construct sentences.
+
+
+### Question 3
+##	Redo visualization but remove stopwords before
+##	Bonus points if you remove numbers as well
+
+
+
+```{r}
+
+dat %>%
+  unnest_tokens(token, transcription) %>%
+  anti_join(stop_words, by = c("token" = "word")) %>%
+  anti_join(data.frame(token = as.character(0:9)), by = "token") %>%
+  count(token, sort = TRUE)
+
+
+
+```
+
+
+Answer 3: Upon eliminating stop words and numbers, it becomes evident that the majority of the text within the transcription revolves around the patient. The top 20 words align with what we typically observe in patient charts, whether in outpatient or surgical contexts.
+
+
+### Question 4
+##repeat question 2, but this time tokenize into bi-grams. how does the result change if you ##look at tri-grams?
+
+
+
+```{r}
+
+bigramMedScript <- dat %>%
+  unnest_tokens(ngram, transcription, token = "ngrams", n = 2) %>%
+  separate(ngram, into = c("word1", "word2"), sep = " ") %>%
+  select(word1, word2) %>%
+  count(word1, word2, sort = TRUE)%>% 
+  top_n(20, n)
+
+bigramMedScript
+
+trigramMedScript <- dat %>%
+  unnest_tokens(ngram, transcription, token = "ngrams", n = 3) %>%
+  separate(ngram, into = c("word1", "word2", "word3"), sep = " ") %>%
+  select(word1, word2, word3) %>%
+  count(word1, word2, word3, sort = TRUE)%>% 
+  top_n(20, n)
+
+trigramMedScript
+
+```
+
+Answer 4: Bigrams and Trigrams had limitations in their informativeness, as many of the frequently occurring combinations were highly common in medical dictation but did not provide any insight into the patient's primary concern.
+
+### Question 5
+##Using the results you got from questions 4. Pick a word and count the words that appears after ##and before it.
+
+
+```{r}
+
+beforeSurgery <- dat %>%
+  unnest_tokens(ngram, transcription, token = "ngrams", n = 2) %>%
+  separate(ngram, into = c("word1", "word2"), sep = " ") %>%
+  select(word1, word2) %>%
+  filter(word2 == "surgery") %>%
+  count(word1, sort = TRUE)
+
+
+afterSurgery<- dat %>%
+  unnest_tokens(ngram, transcription, token = "ngrams", n = 2) %>%
+  separate(ngram, into = c("word1", "word2"), sep = " ") %>%
+  select(word1, word2) %>%
+  filter(word1 == "surgery") %>%
+  count(word2, sort = TRUE)
+
+beforeSurgery
+afterSurgery
+
+```
+
+
+### Question 6 - Which words are most used in each of the specialties
+
+
+```{r}
+
+datClensed <- dat %>%
+  unnest_tokens(word, transcription) %>%
+  anti_join(stop_words, by = c("word"))
+
+top5WordsBySpecialty <- datClensed %>%
+  group_by(medical_specialty) %>%
+  count(word) %>%
+  top_n(5, n) %>%
+  arrange(medical_specialty, desc(n))
+
+print(top5WordsBySpecialty)
+
+
+```
+
+Answer 6: Above is the list of the top 5 words by specialty in descending order.
+
+
+### Question 7
+
+
+```{r}
+
+##Columns Names: description, medical_specialty, sample_name, transcription, keywords
+
+
+dataCardio <- dat %>%
+  filter(medical_specialty == "Cardiovascular / Pulmonary")
+
+dataCardioRate <- dataCardio %>%
+  unnest_tokens(word, transcription) %>%
+  anti_join(stop_words, by = c("word")) %>%
+  count(word) %>%
+  filter(word == "echocardiogram") %>%
+  summarise(cardio_rate = n() / nrow(dataCardio))
+
+dataNonCardio <- dat %>%
+  filter(medical_specialty != "Cardiovascular / Pulmonary")
+
+dataNonCardioRate <- dataNonCardio %>%
+  unnest_tokens(word, transcription) %>%
+  anti_join(stop_words, by = c("word")) %>%
+  count(word) %>%
+  filter(word == "echocardiogram") %>%
+  summarise(noncardio_rate = n() / nrow(dataNonCardio))
+
+print(dataCardioRate)
+
+print(dataNonCardioRate)
+
+ratio <- dataCardioRate / dataNonCardioRate
+
+print(ratio)
+
+
+```
+
+
+Answer 7: In "Cardiovascular / Pulmonary" specialty, the word "echocardiogram" occurs 12 times more than in other non-cardiovascular specialties.
+
+
